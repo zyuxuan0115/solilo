@@ -2,12 +2,14 @@ import type { ConnectedAccount } from '../../schemas/account.js'
 import type { DeliveryReceipt, FediverseVisibility } from '../../schemas/post.js'
 import { publishToMastodon } from './mastodon.js'
 import { publishToMisskey } from './misskey.js'
+import type { OutboundMediaFile } from './types.js'
 
 export async function dispatchPostToAccounts(params: {
   postId: string
   content: string
   contentWarning: string | null
   fediverseVisibility: FediverseVisibility
+  mediaFiles: OutboundMediaFile[]
   accounts: Array<ConnectedAccount & { accessToken: string }>
 }): Promise<DeliveryReceipt[]> {
   const outcomes = await Promise.allSettled(
@@ -18,6 +20,7 @@ export async function dispatchPostToAccounts(params: {
         content: params.content,
         contentWarning: params.contentWarning,
         visibility: params.fediverseVisibility,
+        mediaFiles: params.mediaFiles,
         idempotencyKey: `${params.postId}:${account.id}`,
       }
 

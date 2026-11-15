@@ -7,6 +7,7 @@ import { FirebaseNotConfiguredError } from './config/firebase.js'
 import { accountsRouter } from './routes/accounts.js'
 import { apiKeysRouter } from './routes/apiKeys.js'
 import { healthRouter } from './routes/health.js'
+import { mediaRouter } from './routes/media.js'
 import { postsRouter } from './routes/posts.js'
 import { publicTimelineRouter } from './routes/publicTimeline.js'
 import type { AppEnv } from './types.js'
@@ -100,6 +101,7 @@ api.onError((err, c) => {
 
 const routes = api
   .route('/health', healthRouter)
+  .route('/media', mediaRouter)
   .route('/posts', postsRouter)
   .route('/accounts', accountsRouter)
   .route('/api-keys', apiKeysRouter)
@@ -111,9 +113,9 @@ api.doc('/openapi.json', {
   openapi: '3.1.0',
   info: {
     title: 'Solilo API',
-    version: '0.1.0',
+    version: '0.2.0',
     description:
-      'Personal monologue timeline backend for Web, iOS, Android, Mastodon/Misskey cross-posting, and website embedding.',
+      'Personal monologue timeline backend for Web, iOS, Android, up-to-4-photo uploads (Firebase Storage + Mastodon/Misskey media sync), and website embedding.',
   },
 })
 

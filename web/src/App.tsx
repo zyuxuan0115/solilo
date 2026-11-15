@@ -4,6 +4,7 @@ import { ApiKeysEmbedDialog } from './components/ApiKeysEmbedDialog'
 import { AuthScreen } from './components/AuthScreen'
 import { Composer } from './components/Composer'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { ImageLightboxDialog } from './components/ImageLightboxDialog'
 import { TimelineItem } from './components/TimelineItem'
 import {
   createCloudSoliloClient,
@@ -24,6 +25,7 @@ import type {
   CreatePostInput,
   FediversePlatform,
   Post,
+  PostMedia,
   UpdatePostInput,
 } from './types/solilo'
 
@@ -46,6 +48,10 @@ export function App() {
   const [embedModalOpen, setEmbedModalOpen] = useState(false)
   const [postPendingDelete, setPostPendingDelete] = useState<Post | null>(null)
   const [deletingPost, setDeletingPost] = useState(false)
+  const [lightboxState, setLightboxState] = useState<{
+    mediaList: PostMedia[]
+    index: number
+  } | null>(null)
   const [banner, setBanner] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
 
   const [themeChoice, setThemeChoice] = useState<ThemeChoice>(() => readStoredThemeChoice())
@@ -131,6 +137,11 @@ export function App() {
     }
     void loadWorkspace(client)
   }, [client, loadWorkspace])
+
+  async function handleUploadMedia(file: File, alt?: string) {
+    if (!client) throw new Error('未登录')
+    return client.uploadMedia(file, alt)
+  }
 
   async function handlePublish(input: CreatePostInput) {
     if (!client) return
@@ -313,6 +324,7 @@ export function App() {
 
         <Composer
           accounts={accounts}
+          onUploadMedia={handleUploadMedia}
           onPublish={handlePublish}
           onOpenAccounts={() => setAccountsModalOpen(true)}
         />
@@ -368,6 +380,9 @@ export function App() {
                         post={post}
                         onUpdate={handleUpdatePost}
                         onRequestDelete={setPostPendingDelete}
+                        onOpenMedia={(mediaList, index) =>
+                          setLightboxState({ mediaList, index })
+                        }
                       />
                     ))}
                   </div>
@@ -411,10 +426,19 @@ export function App() {
         onRevokeKey={handleRevokeApiKey}
       />
 
+      <ImageLightboxDialog
+        mediaList={lightboxState?.mediaList ?? null}
+        activeIndex={lightboxState?.index ?? 0}
+        onChangeIndex={(nextIndex) =>
+          setLightboxState((prev) => (prev ? { ...prev, index: nextIndex } : null))
+        }
+        onClose={() => setLightboxState(null)}
+      />
+
       <ConfirmDialog
         open={postPendingDelete !== null}
         title="删除这条记录？"
-        description="删除后将从你的 Solilo 时间线与网站嵌入缓存中移除（已同步发送到 Mastodon / Misskey 的远端动态不会自动撤回）。"
+        description="删除后将从你的 Solilo 时间线、云存储及网站嵌入缓存中移除（已同步发送到 Mastodon / Misskey 的远端动态不会自动撤回）。"
         confirmLabel="确认删除"
         busy={deletingPost}
         onConfirm={() => void handleConfirmDeletePost()}

@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from 'node:path'
 import { cert, getApps, initializeApp, type App, type ServiceAccount } from 'firebase-admin/app'
 import { getAuth, type Auth } from 'firebase-admin/auth'
 import { getFirestore, type Firestore } from 'firebase-admin/firestore'
+import { getStorage, type Storage } from 'firebase-admin/storage'
 import { env } from './env.js'
 
 const API_ROOT_DIR = resolve(import.meta.dirname, '../..')
@@ -116,4 +117,15 @@ export function getDb(): Firestore {
   cachedFirestore = getFirestore(getFirebaseApp())
   cachedFirestore.settings({ ignoreUndefinedProperties: true })
   return cachedFirestore
+}
+
+export function getStorageBucket(): ReturnType<Storage['bucket']> {
+  const app = getFirebaseApp()
+  const explicitBucket = env.FIREBASE_STORAGE_BUCKET?.trim()
+  const bucketName =
+    explicitBucket ||
+    app.options.storageBucket ||
+    (app.options.projectId ? `${app.options.projectId}.firebasestorage.app` : undefined)
+
+  return bucketName ? getStorage(app).bucket(bucketName) : getStorage(app).bucket()
 }

@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// ===============================================================
+// Solilo — Cloud Storage for Firebase Security Rules
+// ===============================================================
+// All photo uploads and reads are mediated by the `web/api` Hono server
+// using `firebase-admin/storage` (Service Account credentials) and served
+// via HMAC-signed `/apps/solilo/api/media/:id` URLs.
+// Direct client-SDK access is unconditionally denied.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import type { PaginatedResponse, PublicPost } from '../types/solilo'
+import type { PaginatedResponse, PostMedia, PublicPost } from '../types/solilo'
 
 const WIDGET_CSS = `
   @layer base {
@@ -91,6 +91,59 @@ const WIDGET_CSS = `
       white-space: pre-wrap;
       word-break: break-word;
       font-size: 0.975rem;
+    }
+
+    .media-grid {
+      display: grid;
+      gap: 0.4rem;
+      margin-block-start: 0.55rem;
+      border-radius: calc(var(--_radius) * 0.85);
+      overflow: hidden;
+    }
+
+    .content + .media-grid {
+      margin-block-start: 0.65rem;
+    }
+
+    .media-grid.count-1 {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .media-grid.count-2,
+    .media-grid.count-3,
+    .media-grid.count-4 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .media-cell {
+      position: relative;
+      display: block;
+      overflow: hidden;
+      background: rgba(125, 120, 110, 0.1);
+      aspect-ratio: 16 / 10;
+    }
+
+    .media-grid.count-1 .media-cell {
+      aspect-ratio: auto;
+      max-block-size: 22rem;
+    }
+
+    .media-grid.count-3 .media-cell:first-child {
+      grid-row: span 2;
+      aspect-ratio: auto;
+      height: 100%;
+    }
+
+    .media-img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .media-grid.count-1 .media-img {
+      max-block-size: 22rem;
+      object-fit: cover;
     }
 
     details.cw {
@@ -204,6 +257,50 @@ function isSafeHttpUrl(raw: string): boolean {
   } catch {
     return false
   }
+}
+
+function isSafeMediaUrl(raw: string): boolean {
+  if (isSafeHttpUrl(raw)) return true
+  return /^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(raw)
+}
+
+function buildMediaGridElement(mediaItems: PostMedia[], insideCollapsedCw: boolean): HTMLDivElement | null {
+  const valid = mediaItems.filter((item) => isSafeMediaUrl(item.url)).slice(0, 4)
+  if (valid.length === 0) return null
+
+  const grid = document.createElement('div')
+  grid.className = `media-grid count-${valid.length}`
+  grid.setAttribute('part', 'media-grid')
+
+  for (const media of valid) {
+    const img = document.createElement('img')
+    img.className = 'media-img'
+    img.setAttribute('part', 'media-img')
+    img.src = media.url
+    img.alt = media.alt ?? ''
+    img.loading = 'lazy'
+    if (insideCollapsedCw) {
+      img.fetchPriority = 'low'
+    }
+
+    if (isSafeHttpUrl(media.url)) {
+      const link = document.createElement('a')
+      link.className = 'media-cell'
+      link.href = media.url
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      if (media.alt) link.title = media.alt
+      link.append(img)
+      grid.append(link)
+    } else {
+      const span = document.createElement('span')
+      span.className = 'media-cell'
+      span.append(img)
+      grid.append(span)
+    }
+  }
+
+  return grid
 }
 
 export class SoliloTimelineElement extends HTMLElement {
@@ -408,20 +505,28 @@ export class SoliloTimelineElement extends HTMLElement {
       const body = document.createElement('div')
       body.className = 'body'
 
-      const contentP = document.createElement('p')
-      contentP.className = 'content'
-      contentP.setAttribute('part', 'content')
-      contentP.textContent = post.content
+      const hasContent = Boolean(post.content && post.content.length > 0)
+      const contentP = hasContent ? document.createElement('p') : null
+      if (contentP) {
+        contentP.className = 'content'
+        contentP.setAttribute('part', 'content')
+        contentP.textContent = post.content
+      }
+
+      const mediaGrid = buildMediaGridElement(post.media ?? [], Boolean(post.contentWarning))
 
       if (post.contentWarning) {
         const details = document.createElement('details')
         details.className = 'cw'
         const summary = document.createElement('summary')
         summary.textContent = post.contentWarning
-        details.append(summary, contentP)
+        details.append(summary)
+        if (contentP) details.append(contentP)
+        if (mediaGrid) details.append(mediaGrid)
         body.append(details)
       } else {
-        body.append(contentP)
+        if (contentP) body.append(contentP)
+        if (mediaGrid) body.append(mediaGrid)
       }
 
       if (post.syndications.length > 0) {

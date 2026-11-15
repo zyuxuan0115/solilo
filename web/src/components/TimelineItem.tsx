@@ -1,14 +1,20 @@
 import { useId, useState, type FormEvent } from 'react'
 import { formatFullDateTime, formatTimeOfDay } from '../lib/time'
-import type { Post, SoliloVisibility, UpdatePostInput } from '../types/solilo'
+import type { Post, PostMedia, SoliloVisibility, UpdatePostInput } from '../types/solilo'
 
 interface TimelineItemProps {
   post: Post
   onUpdate: (id: string, patch: UpdatePostInput) => Promise<void>
   onRequestDelete: (post: Post) => void
+  onOpenMedia: (mediaList: PostMedia[], index: number) => void
 }
 
-export function TimelineItem({ post, onUpdate, onRequestDelete }: TimelineItemProps) {
+export function TimelineItem({
+  post,
+  onUpdate,
+  onRequestDelete,
+  onOpenMedia,
+}: TimelineItemProps) {
   const [editing, setEditing] = useState(false)
   const [draftContent, setDraftContent] = useState(post.content)
   const [draftCw, setDraftCw] = useState(post.contentWarning ?? '')
@@ -21,6 +27,8 @@ export function TimelineItem({ post, onUpdate, onRequestDelete }: TimelineItemPr
   const editVisPubId = useId()
   const editVisPrivId = useId()
 
+  const mediaList = post.media ?? []
+
   function startEditing() {
     setDraftContent(post.content)
     setDraftCw(post.contentWarning ?? '')
@@ -32,7 +40,7 @@ export function TimelineItem({ post, onUpdate, onRequestDelete }: TimelineItemPr
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = draftContent.trim()
-    if (!trimmed) return
+    if (!trimmed && mediaList.length === 0) return
 
     setSaving(true)
     setError(null)
@@ -48,6 +56,38 @@ export function TimelineItem({ post, onUpdate, onRequestDelete }: TimelineItemPr
     } finally {
       setSaving(false)
     }
+  }
+
+  function renderMediaGrid(insideCollapsedCw: boolean) {
+    if (mediaList.length === 0) return null
+    const count = Math.min(mediaList.length, 4)
+
+    return (
+      <div className={`media-grid count-${count}`} role="group" aria-label="动态附图">
+        {mediaList.slice(0, 4).map((item, idx) => (
+          <button
+            key={item.id}
+            type="button"
+            className="media-thumb-btn"
+            aria-label={item.alt ? `查看大图：${item.alt}` : `查看第 ${idx + 1} 张照片`}
+            onClick={() => onOpenMedia(mediaList, idx)}
+          >
+            <img
+              src={item.url}
+              alt={item.alt ?? ''}
+              loading="lazy"
+              fetchPriority={insideCollapsedCw ? 'low' : undefined}
+              className="media-thumb-img"
+            />
+            {item.alt ? (
+              <span className="media-alt-badge" aria-hidden="true">
+                ALT
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -93,7 +133,7 @@ export function TimelineItem({ post, onUpdate, onRequestDelete }: TimelineItemPr
               <textarea
                 id={editContentId}
                 name="content"
-                required
+                required={mediaList.length === 0}
                 maxLength={5000}
                 value={draftContent}
                 onChange={(e) => setDraftContent(e.target.value)}
@@ -149,10 +189,14 @@ export function TimelineItem({ post, onUpdate, onRequestDelete }: TimelineItemPr
             {post.contentWarning ? (
               <details className="entry-cw">
                 <summary>{post.contentWarning}</summary>
-                <p className="entry-content">{post.content}</p>
+                {post.content ? <p className="entry-content">{post.content}</p> : null}
+                {renderMediaGrid(true)}
               </details>
             ) : (
-              <p className="entry-content">{post.content}</p>
+              <>
+                {post.content ? <p className="entry-content">{post.content}</p> : null}
+                {renderMediaGrid(false)}
+              </>
             )}
 
             {post.deliveries.length > 0 ? (

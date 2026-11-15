@@ -1,9 +1,14 @@
 import { env } from '../../config/env.js'
 import type { FediverseVisibility } from '../../schemas/post.js'
 import { getMastodonInstanceApp, saveMastodonInstanceApp } from '../firestore.js'
-import type { PublishPostInput, PublishPostResult, VerifiedRemoteProfile } from './types.js'
+import type {
+  OutboundMediaFile,
+  PublishPostInput,
+  PublishPostResult,
+  VerifiedRemoteProfile,
+} from './types.js'
 
-const MASTODON_SCOPES = 'read:accounts write:statuses'
+const MASTODON_SCOPES = 'read:accounts write:statuses write:media'
 
 export function getMastodonCallbackUrl(): string {
   return `${env.publicApiBaseUrl}/accounts/mastodon/callback`
@@ -14,7 +19,7 @@ export async function ensureMastodonOAuthApp(
   instanceHost: string,
 ): Promise<{ clientId: string; clientSecret: string; redirectUri: string }> {
   const redirectUri = getMastodonCallbackUrl()
-  const cached = await getMastodonInstanceApp(instanceHost, redirectUri)
+  const cached = await getMastodonInstanceApp(instanceHost, redirectUri, MASTODON_SCOPES)
   if (cached) {
     return { ...cached, redirectUri }
   }
@@ -48,6 +53,7 @@ export async function ensureMastodonOAuthApp(
     clientId: data.client_id,
     clientSecret: data.client_secret,
     redirectUri,
+    scopes: MASTODON_SCOPES,
   })
 
   return {
@@ -140,7 +146,87 @@ function mapToMastodonVisibility(
   return visibility
 }
 
+async function waitForMastodonMediaProcessing(
+  instanceOrigin: string,
+  accessToken: string,
+  mediaId: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    const poll = await fetch(
+      `${instanceOrigin}/api/v1/media/${encodeURIComponent(mediaId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      },
+    )
+    if (poll.status === 200) return
+    if (poll.status !== 206) break
+  }
+}
+
+async function uploadSingleMastodonMedia(
+  instanceOrigin: string,
+  accessToken: string,
+  media: OutboundMediaFile,
+): Promise<string> {
+  const buildForm = () => {
+    const form = new FormData()
+    const blob = new Blob([new Uint8Array(media.buffer)], { type: media.mimeType })
+    form.append('file', blob, media.filename)
+    if (media.alt) {
+      form.append('description', media.alt)
+    }
+    return form
+  }
+
+  let res = await fetch(`${instanceOrigin}/api/v2/media`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+    body: buildForm(),
+  })
+
+  // Fallback for older Mastodon-compatible servers that only implement /api/v1/media
+  if (res.status === 404) {
+    res = await fetch(`${instanceOrigin}/api/v1/media`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+      body: buildForm(),
+    })
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Mastodon media upload HTTP ${res.status}: ${errText.slice(0, 200)}`)
+  }
+
+  const payload = (await res.json()) as { id?: string }
+  if (!payload.id) {
+    throw new Error('Mastodon media upload did not return an attachment id.')
+  }
+
+  if (res.status === 202) {
+    await waitForMastodonMediaProcessing(instanceOrigin, accessToken, String(payload.id))
+  }
+
+  return String(payload.id)
+}
+
 export async function publishToMastodon(input: PublishPostInput): Promise<PublishPostResult> {
+  const mediaIds: string[] = []
+  for (const media of input.mediaFiles) {
+    const id = await uploadSingleMastodonMedia(input.instanceOrigin, input.accessToken, media)
+    mediaIds.push(id)
+  }
+
   const response = await fetch(`${input.instanceOrigin}/api/v1/statuses`, {
     method: 'POST',
     headers: {
@@ -153,6 +239,7 @@ export async function publishToMastodon(input: PublishPostInput): Promise<Publis
       status: input.content,
       spoiler_text: input.contentWarning ?? undefined,
       visibility: mapToMastodonVisibility(input.visibility),
+      media_ids: mediaIds.length > 0 ? mediaIds : undefined,
     }),
   })
 

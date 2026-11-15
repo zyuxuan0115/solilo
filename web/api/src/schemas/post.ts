@@ -18,6 +18,30 @@ export const FediverseVisibilitySchema = z
   })
 export type FediverseVisibility = z.infer<typeof FediverseVisibilitySchema>
 
+export const PostMediaSchema = z
+  .object({
+    id: z.string().openapi({ example: 'med_m8x9a_1f2e3d4c.jpg' }),
+    url: z
+      .string()
+      .url()
+      .openapi({ example: 'https://kate0115.cc/apps/solilo/api/media/med_m8x9a_1f2e3d4c.jpg?u=uid&sig=...' }),
+    mimeType: z
+      .enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+      .openapi({ example: 'image/jpeg' }),
+    sizeBytes: z.number().int().nonnegative().openapi({ example: 245120 }),
+    alt: z.string().max(1500).nullable().openapi({ example: '傍晚窗边的胶片天空' }),
+  })
+  .openapi('PostMedia')
+
+export type PostMedia = z.infer<typeof PostMediaSchema>
+
+export const PostMediaAttachmentInputSchema = z
+  .object({
+    id: z.string().min(1).openapi({ example: 'med_m8x9a_1f2e3d4c.jpg' }),
+    alt: z.string().trim().max(1500).nullable().optional().openapi({ example: '傍晚窗边的胶片天空' }),
+  })
+  .openapi('PostMediaAttachmentInput')
+
 export const DeliveryReceiptSchema = z
   .object({
     accountId: z.string().openapi({ example: 'mastodon_mastodon.social_109382' }),
@@ -43,6 +67,7 @@ export const PostSchema = z
     contentWarning: z.string().nullable().openapi({ example: null }),
     visibility: SoliloVisibilitySchema,
     fediverseVisibility: FediverseVisibilitySchema,
+    media: z.array(PostMediaSchema).max(4).default([]),
     deliveries: z.array(DeliveryReceiptSchema),
     createdAt: z.string().openapi({ example: '2026-11-14T21:00:00.000Z' }),
     updatedAt: z.string().openapi({ example: '2026-11-14T21:00:01.000Z' }),
@@ -56,8 +81,8 @@ export const CreatePostRequestSchema = z
     content: z
       .string()
       .trim()
-      .min(1)
       .max(5000)
+      .default('')
       .openapi({ example: '深夜独自写点东西，留在自己的时间线上。' }),
     contentWarning: z
       .string()
@@ -68,6 +93,14 @@ export const CreatePostRequestSchema = z
       .openapi({ example: null, description: 'Optional CW / spoiler text for Mastodon & Misskey.' }),
     visibility: SoliloVisibilitySchema.default('public'),
     fediverseVisibility: FediverseVisibilitySchema.default('public'),
+    media: z
+      .array(PostMediaAttachmentInputSchema)
+      .max(4)
+      .default([])
+      .openapi({
+        example: [],
+        description: 'Up to 4 uploaded photo attachments (Mastodon rule).',
+      }),
     accountIds: z
       .array(z.string())
       .max(20)
@@ -78,11 +111,15 @@ export const CreatePostRequestSchema = z
           'IDs of connected Mastodon/Misskey accounts to cross-post to. Leave empty for Solilo-only.',
       }),
   })
+  .refine((data) => data.content.trim().length > 0 || data.media.length > 0, {
+    message: '动态正文与照片不能同时为空。',
+    path: ['content'],
+  })
   .openapi('CreatePostRequest')
 
 export const UpdatePostRequestSchema = z
   .object({
-    content: z.string().trim().min(1).max(5000).optional(),
+    content: z.string().trim().max(5000).optional(),
     contentWarning: z.string().trim().max(500).nullable().optional(),
     visibility: SoliloVisibilitySchema.optional(),
   })
@@ -106,6 +143,7 @@ export const PublicPostSchema = z
     id: z.string(),
     content: z.string(),
     contentWarning: z.string().nullable(),
+    media: z.array(PostMediaSchema).max(4).default([]),
     syndications: z.array(PublicSyndicationSchema),
     createdAt: z.string(),
     updatedAt: z.string(),

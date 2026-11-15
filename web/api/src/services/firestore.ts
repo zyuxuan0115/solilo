@@ -1,15 +1,24 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { getDb } from '../config/firebase.js'
+import { env } from '../config/env.js'
+import { getDb, getStorageBucket } from '../config/firebase.js'
 import type { ConnectedAccount, FediversePlatform } from '../schemas/account.js'
 import type { ApiKeyMetadata } from '../schemas/apiKey.js'
 import type {
   DeliveryReceipt,
   FediverseVisibility,
   Post,
+  PostMedia,
   PublicPost,
   SoliloVisibility,
 } from '../schemas/post.js'
-import { decryptSecret, encryptSecret, generateApiKey, hashApiKey } from '../utils/crypto.js'
+import {
+  decryptSecret,
+  encryptSecret,
+  generateApiKey,
+  hashApiKey,
+  signMediaAccess,
+} from '../utils/crypto.js'
+import type { SupportedImageMime } from '../utils/image.js'
 
 export interface StoredConnectedAccount extends ConnectedAccount {
   encryptedAccessToken: string
@@ -21,6 +30,7 @@ export interface StoredMastodonInstanceApp {
   clientId: string
   encryptedClientSecret: string
   redirectUri: string
+  scopes?: string
   updatedAt: string
 }
 
@@ -34,6 +44,12 @@ export interface OAuthStateRecord {
   expiresAt: string
 }
 
+export interface StoredMediaRecord extends PostMedia {
+  uid: string
+  storagePath: string
+  createdAt: string
+}
+
 interface StoredApiKeyRecord extends ApiKeyMetadata {
   uid: string
   keyHash: string
@@ -41,6 +57,160 @@ interface StoredApiKeyRecord extends ApiKeyMetadata {
 
 function userDoc(uid: string) {
   return getDb().collection('users').doc(uid)
+}
+
+function normalizeStoredPost(raw: Post): Post {
+  return {
+    ...raw,
+    media: Array.isArray(raw.media) ? raw.media : [],
+    deliveries: Array.isArray(raw.deliveries) ? raw.deliveries : [],
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Media (Firebase Cloud Storage + Firestore Metadata)
+// ---------------------------------------------------------------------------
+
+export function buildMediaPublicUrl(uid: string, mediaId: string): string {
+  const sig = signMediaAccess(uid, mediaId)
+  const url = new URL(`${env.publicApiBaseUrl}/media/${encodeURIComponent(mediaId)}`)
+  url.searchParams.set('u', uid)
+  url.searchParams.set('sig', sig)
+  return url.toString()
+}
+
+export function getMediaStoragePath(uid: string, mediaId: string): string {
+  return `users/${uid}/media/${mediaId}`
+}
+
+export async function uploadUserMedia(
+  uid: string,
+  input: {
+    buffer: Buffer
+    mimeType: SupportedImageMime
+    extension: 'jpg' | 'png' | 'webp' | 'gif'
+    alt: string | null
+  },
+): Promise<PostMedia> {
+  const mediaId = `med_${Date.now().toString(36)}_${randomBytes(6).toString('hex')}.${input.extension}`
+  const storagePath = getMediaStoragePath(uid, mediaId)
+  const bucket = getStorageBucket()
+
+  await bucket.file(storagePath).save(input.buffer, {
+    resumable: false,
+    contentType: input.mimeType,
+    metadata: {
+      cacheControl: 'public, max-age=31536000, immutable',
+    },
+  })
+
+  const url = buildMediaPublicUrl(uid, mediaId)
+  const now = new Date().toISOString()
+
+  const stored: StoredMediaRecord = {
+    id: mediaId,
+    uid,
+    storagePath,
+    url,
+    mimeType: input.mimeType,
+    sizeBytes: input.buffer.byteLength,
+    alt: input.alt,
+    createdAt: now,
+  }
+
+  await userDoc(uid).collection('media').doc(mediaId).set(stored)
+
+  return {
+    id: stored.id,
+    url: stored.url,
+    mimeType: stored.mimeType,
+    sizeBytes: stored.sizeBytes,
+    alt: stored.alt,
+  }
+}
+
+export async function downloadMediaFromStorage(
+  uid: string,
+  mediaId: string,
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const storagePath = getMediaStoragePath(uid, mediaId)
+  const file = getStorageBucket().file(storagePath)
+  const [exists] = await file.exists()
+  if (!exists) return null
+
+  const [metadata] = await file.getMetadata()
+  const [buffer] = await file.download()
+  return {
+    buffer,
+    contentType: metadata.contentType || 'application/octet-stream',
+  }
+}
+
+export async function resolveUserMediaForPost(
+  uid: string,
+  attachments: Array<{ id: string; alt?: string | null }>,
+): Promise<{
+  media: PostMedia[]
+  storageRecords: StoredMediaRecord[]
+} | null> {
+  if (attachments.length === 0) {
+    return { media: [], storageRecords: [] }
+  }
+
+  const refs = attachments.map((item) => userDoc(uid).collection('media').doc(item.id))
+  const snaps = await getDb().getAll(...refs)
+
+  const media: PostMedia[] = []
+  const storageRecords: StoredMediaRecord[] = []
+
+  for (let i = 0; i < snaps.length; i++) {
+    const snap = snaps[i]!
+    const inputItem = attachments[i]!
+    if (!snap.exists) return null
+
+    const record = snap.data() as StoredMediaRecord
+    const resolvedAlt = inputItem.alt !== undefined ? (inputItem.alt ?? null) : record.alt
+    const freshUrl = buildMediaPublicUrl(uid, record.id)
+
+    if (resolvedAlt !== record.alt) {
+      await snap.ref.update({ alt: resolvedAlt })
+    }
+
+    const mediaItem: PostMedia = {
+      id: record.id,
+      url: freshUrl,
+      mimeType: record.mimeType,
+      sizeBytes: record.sizeBytes,
+      alt: resolvedAlt,
+    }
+    media.push(mediaItem)
+    storageRecords.push({
+      ...record,
+      url: freshUrl,
+      alt: resolvedAlt,
+    })
+  }
+
+  return { media, storageRecords }
+}
+
+export async function downloadStoredMediaPayloads(
+  records: StoredMediaRecord[],
+): Promise<Array<{ buffer: Buffer; mimeType: SupportedImageMime; filename: string; alt: string | null }>> {
+  if (records.length === 0) return []
+  const bucket = getStorageBucket()
+
+  return Promise.all(
+    records.map(async (rec) => {
+      const [buffer] = await bucket.file(rec.storagePath).download()
+      return {
+        buffer,
+        mimeType: rec.mimeType,
+        filename: rec.id,
+        alt: rec.alt,
+      }
+    }),
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +228,7 @@ export async function listPosts(
   }
 
   const snapshot = await query.limit(options.limit + 1).get()
-  const docs = snapshot.docs.map((doc) => doc.data() as Post)
+  const docs = snapshot.docs.map((doc) => normalizeStoredPost(doc.data() as Post))
 
   const hasMore = docs.length > options.limit
   const items = hasMore ? docs.slice(0, options.limit) : docs
@@ -84,7 +254,7 @@ export async function listPublicPosts(
   }
 
   const snapshot = await query.limit(options.limit + 1).get()
-  const rawPosts = snapshot.docs.map((doc) => doc.data() as Post)
+  const rawPosts = snapshot.docs.map((doc) => normalizeStoredPost(doc.data() as Post))
 
   const hasMore = rawPosts.length > options.limit
   const slice = hasMore ? rawPosts.slice(0, options.limit) : rawPosts
@@ -94,6 +264,7 @@ export async function listPublicPosts(
     id: post.id,
     content: post.content,
     contentWarning: post.contentWarning,
+    media: post.media,
     syndications: post.deliveries
       .filter((d) => d.status === 'published' && Boolean(d.remoteUrl))
       .map((d) => ({
@@ -114,7 +285,7 @@ export async function listPublicPosts(
 export async function getPost(uid: string, postId: string): Promise<Post | null> {
   const snap = await userDoc(uid).collection('posts').doc(postId).get()
   if (!snap.exists) return null
-  return snap.data() as Post
+  return normalizeStoredPost(snap.data() as Post)
 }
 
 export async function createPostRecord(
@@ -124,6 +295,7 @@ export async function createPostRecord(
     contentWarning: string | null
     visibility: SoliloVisibility
     fediverseVisibility: FediverseVisibility
+    media: PostMedia[]
     deliveries: DeliveryReceipt[]
   },
 ): Promise<Post> {
@@ -136,6 +308,7 @@ export async function createPostRecord(
     contentWarning: input.contentWarning,
     visibility: input.visibility,
     fediverseVisibility: input.fediverseVisibility,
+    media: input.media,
     deliveries: input.deliveries,
     createdAt: now,
     updatedAt: now,
@@ -154,7 +327,7 @@ export async function updatePostDeliveries(
   const updatedAt = new Date().toISOString()
   await ref.update({ deliveries, updatedAt })
   const snap = await ref.get()
-  return snap.exists ? (snap.data() as Post) : null
+  return snap.exists ? normalizeStoredPost(snap.data() as Post) : null
 }
 
 export async function updatePostRecord(
@@ -169,6 +342,12 @@ export async function updatePostRecord(
   const ref = userDoc(uid).collection('posts').doc(postId)
   const existing = await ref.get()
   if (!existing.exists) return null
+  const current = normalizeStoredPost(existing.data() as Post)
+
+  const nextContent = patch.content !== undefined ? patch.content : current.content
+  if (nextContent.trim().length === 0 && current.media.length === 0) {
+    throw new Error('无配图的动态正文不能为空。')
+  }
 
   const updates: Record<string, unknown> = {
     updatedAt: new Date().toISOString(),
@@ -179,14 +358,31 @@ export async function updatePostRecord(
 
   await ref.update(updates)
   const updated = await ref.get()
-  return updated.data() as Post
+  return normalizeStoredPost(updated.data() as Post)
 }
 
 export async function deletePostRecord(uid: string, postId: string): Promise<boolean> {
   const ref = userDoc(uid).collection('posts').doc(postId)
   const existing = await ref.get()
   if (!existing.exists) return false
+
+  const post = normalizeStoredPost(existing.data() as Post)
   await ref.delete()
+
+  // Best-effort cleanup of associated Cloud Storage objects & media docs
+  if (post.media.length > 0) {
+    const bucket = getStorageBucket()
+    await Promise.allSettled(
+      post.media.map(async (m) => {
+        const storagePath = getMediaStoragePath(uid, m.id)
+        await Promise.allSettled([
+          bucket.file(storagePath).delete({ ignoreNotFound: true }),
+          userDoc(uid).collection('media').doc(m.id).delete(),
+        ])
+      }),
+    )
+  }
+
   return true
 }
 
@@ -286,11 +482,12 @@ export async function deleteConnectedAccount(uid: string, accountId: string): Pr
 export async function getMastodonInstanceApp(
   instanceHost: string,
   expectedRedirectUri: string,
+  expectedScopes: string,
 ): Promise<{ clientId: string; clientSecret: string } | null> {
   const snap = await getDb().collection('instanceApps').doc(instanceHost).get()
   if (!snap.exists) return null
   const data = snap.data() as StoredMastodonInstanceApp
-  if (data.redirectUri !== expectedRedirectUri) {
+  if (data.redirectUri !== expectedRedirectUri || data.scopes !== expectedScopes) {
     return null
   }
   return {
@@ -305,6 +502,7 @@ export async function saveMastodonInstanceApp(input: {
   clientId: string
   clientSecret: string
   redirectUri: string
+  scopes: string
 }): Promise<void> {
   const record: StoredMastodonInstanceApp = {
     instanceOrigin: input.instanceOrigin,
@@ -312,6 +510,7 @@ export async function saveMastodonInstanceApp(input: {
     clientId: input.clientId,
     encryptedClientSecret: encryptSecret(input.clientSecret),
     redirectUri: input.redirectUri,
+    scopes: input.scopes,
     updatedAt: new Date().toISOString(),
   }
   await getDb().collection('instanceApps').doc(input.instanceHost).set(record)
@@ -332,7 +531,7 @@ export async function createOAuthState(input: {
     instanceOrigin: input.instanceOrigin,
     instanceHost: input.instanceHost,
     createdAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + 10 * 60 * 1000).toISOString(), // 10 minutes
+    expiresAt: new Date(now + 10 * 60 * 1000).toISOString(),
   }
   await getDb().collection('oauthStates').doc(state).set(record)
   return record
@@ -358,7 +557,7 @@ export async function consumeOAuthState(
 }
 
 // ---------------------------------------------------------------------------
-// Public Read API Keys (for Website Embedding & External Timeline Pull)
+// Public Read API Keys
 // ---------------------------------------------------------------------------
 
 export async function createApiKeyRecord(
@@ -420,7 +619,6 @@ export async function resolveApiKey(
   if (!snap.exists) return null
 
   const data = snap.data() as StoredApiKeyRecord
-  // Best-effort async touch of lastUsedAt
   void ref.update({ lastUsedAt: new Date().toISOString() }).catch(() => {})
 
   return {

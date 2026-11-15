@@ -1,4 +1,11 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto'
 import { env } from '../config/env.js'
 
 const DEV_FALLBACK_HEX_KEY =
@@ -62,4 +69,20 @@ export function generateApiKey(): { rawKey: string; keyHash: string; prefix: str
   const keyHash = hashApiKey(rawKey)
   const prefix = rawKey.slice(0, 12)
   return { rawKey, keyHash, prefix }
+}
+
+export function signMediaAccess(uid: string, mediaId: string): string {
+  const key = getEncryptionKeyBuffer()
+  return createHmac('sha256', key)
+    .update(`media:${uid}:${mediaId}`)
+    .digest('base64url')
+}
+
+export function verifyMediaAccess(uid: string, mediaId: string, signature: string): boolean {
+  if (!uid || !mediaId || !signature) return false
+  const expected = signMediaAccess(uid, mediaId)
+  const a = Buffer.from(expected, 'utf8')
+  const b = Buffer.from(signature, 'utf8')
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
 }

@@ -6,15 +6,27 @@ import type {
   FediversePlatform,
   PaginatedResponse,
   Post,
+  PostMedia,
+  PostMediaMimeType,
   PublicPost,
   UpdatePostInput,
 } from '../types/solilo'
 import { webEnv } from './env'
 import { getClientAuth } from './firebase'
 
+export const MAX_PHOTOS_PER_POST = 4
+export const MAX_PHOTO_BYTES = 10 * 1024 * 1024
+export const SUPPORTED_IMAGE_MIME_TYPES: ReadonlySet<string> = new Set<PostMediaMimeType>([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+])
+
 export interface SoliloClient {
   readonly mode: 'cloud' | 'sandbox'
   listPosts(params?: { limit?: number; cursor?: string }): Promise<PaginatedResponse<Post>>
+  uploadMedia(file: File, alt?: string): Promise<PostMedia>
   createPost(input: CreatePostInput): Promise<Post>
   updatePost(id: string, patch: UpdatePostInput): Promise<Post>
   deletePost(id: string): Promise<void>
@@ -43,7 +55,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Authorization', `Bearer ${token}`)
   headers.set('Accept', 'application/json')
-  if (init.body && !headers.has('Content-Type')) {
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -71,6 +83,17 @@ export function createCloudSoliloClient(): SoliloClient {
       if (params?.cursor) search.set('cursor', params.cursor)
       const qs = search.toString()
       return apiFetch<PaginatedResponse<Post>>(`/posts${qs ? `?${qs}` : ''}`)
+    },
+    uploadMedia(file, alt) {
+      const form = new FormData()
+      form.append('file', file)
+      if (alt && alt.trim()) {
+        form.append('alt', alt.trim().slice(0, 1500))
+      }
+      return apiFetch<PostMedia>('/media', {
+        method: 'POST',
+        body: form,
+      })
     },
     createPost(input) {
       return apiFetch<Post>('/posts', {
@@ -137,6 +160,7 @@ interface SandboxState {
 }
 
 const SANDBOX_STORAGE_KEY = 'solilo-local-sandbox-v1'
+const sandboxPendingMedia = new Map<string, PostMedia>()
 
 function defaultSandboxState(): SandboxState {
   const now = Date.now()
@@ -167,6 +191,7 @@ function defaultSandboxState(): SandboxState {
         contentWarning: null,
         visibility: 'public',
         fediverseVisibility: 'public',
+        media: [],
         deliveries: [
           {
             accountId: 'mastodon_mastodon.social_demo',
@@ -188,6 +213,7 @@ function defaultSandboxState(): SandboxState {
         contentWarning: null,
         visibility: 'private',
         fediverseVisibility: 'public',
+        media: [],
         deliveries: [],
         createdAt: yesterday,
         updatedAt: yesterday,
@@ -201,7 +227,15 @@ function loadSandbox(): SandboxState {
   try {
     const raw = localStorage.getItem(SANDBOX_STORAGE_KEY)
     if (raw) {
-      return JSON.parse(raw) as SandboxState
+      const parsed = JSON.parse(raw) as SandboxState
+      return {
+        accounts: parsed.accounts ?? [],
+        apiKeys: parsed.apiKeys ?? [],
+        posts: (parsed.posts ?? []).map((p) => ({
+          ...p,
+          media: Array.isArray(p.media) ? p.media : [],
+        })),
+      }
     }
   } catch {
     // Fall back to default seed
@@ -215,7 +249,43 @@ function saveSandbox(state: SandboxState): void {
   try {
     localStorage.setItem(SANDBOX_STORAGE_KEY, JSON.stringify(state))
   } catch {
-    // Ignore quota errors
+    // Ignore quota errors in local preview mode
+  }
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('无法读取本地图片文件。'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function fileToSandboxDataUrl(file: File): Promise<string> {
+  if (file.type === 'image/gif' || file.size <= 350 * 1024) {
+    return readBlobAsDataUrl(file)
+  }
+
+  try {
+    const bitmap = await createImageBitmap(file)
+    const maxEdge = 1200
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
+    const width = Math.max(1, Math.round(bitmap.width * scale))
+    const height = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      bitmap.close()
+      return readBlobAsDataUrl(file)
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    bitmap.close()
+    return canvas.toDataURL('image/jpeg', 0.82)
+  } catch {
+    return readBlobAsDataUrl(file)
   }
 }
 
@@ -226,6 +296,7 @@ export function toPublicPosts(posts: Post[]): PublicPost[] {
       id: p.id,
       content: p.content,
       contentWarning: p.contentWarning,
+      media: p.media ?? [],
       syndications: p.deliveries
         .filter((d) => d.status === 'published' && Boolean(d.remoteUrl))
         .map((d) => ({
@@ -257,11 +328,51 @@ export function createSandboxSoliloClient(): SoliloClient {
         nextCursor: hasMore && last ? last.createdAt : null,
       }
     },
+    async uploadMedia(file, alt) {
+      if (!SUPPORTED_IMAGE_MIME_TYPES.has(file.type)) {
+        throw new Error('仅支持上传 JPEG、PNG、WebP 或 GIF 格式的图片。')
+      }
+      if (file.size === 0 || file.size > MAX_PHOTO_BYTES) {
+        throw new Error('每张照片大小需在 1B 到 10MB 之间。')
+      }
+      const dataUrl = await fileToSandboxDataUrl(file)
+      const id = `med_sim_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
+      const media: PostMedia = {
+        id,
+        url: dataUrl,
+        mimeType: file.type as PostMediaMimeType,
+        sizeBytes: file.size,
+        alt: alt && alt.trim() ? alt.trim().slice(0, 1500) : null,
+      }
+      sandboxPendingMedia.set(id, media)
+      return media
+    },
     async createPost(input) {
       const state = loadSandbox()
       const now = new Date().toISOString()
       const id = `pst_${Date.now().toString(36)}`
       const selected = state.accounts.filter((a) => input.accountIds.includes(a.id))
+      const mediaInputs = (input.media ?? []).slice(0, MAX_PHOTOS_PER_POST)
+      const resolvedMedia: PostMedia[] = mediaInputs
+        .map((item) => {
+          const stored = sandboxPendingMedia.get(item.id)
+          if (!stored) return null
+          sandboxPendingMedia.delete(item.id)
+          return {
+            ...stored,
+            alt:
+              item.alt !== undefined
+                ? item.alt && item.alt.trim()
+                  ? item.alt.trim().slice(0, 1500)
+                  : null
+                : stored.alt,
+          }
+        })
+        .filter((item): item is PostMedia => item !== null)
+
+      if (!input.content.trim() && resolvedMedia.length === 0) {
+        throw new Error('动态正文与照片不能同时为空。')
+      }
 
       const post: Post = {
         id,
@@ -269,6 +380,7 @@ export function createSandboxSoliloClient(): SoliloClient {
         contentWarning: input.contentWarning ?? null,
         visibility: input.visibility,
         fediverseVisibility: input.fediverseVisibility,
+        media: resolvedMedia,
         deliveries: selected.map((acc) => ({
           accountId: acc.id,
           platform: acc.platform,
@@ -294,6 +406,10 @@ export function createSandboxSoliloClient(): SoliloClient {
       const state = loadSandbox()
       const target = state.posts.find((p) => p.id === id)
       if (!target) throw new Error('未找到该条记录。')
+      const nextContent = patch.content !== undefined ? patch.content : target.content
+      if (!nextContent.trim() && (target.media ?? []).length === 0) {
+        throw new Error('动态正文与照片不能同时为空。')
+      }
       if (patch.content !== undefined) target.content = patch.content
       if (patch.contentWarning !== undefined) target.contentWarning = patch.contentWarning
       if (patch.visibility !== undefined) target.visibility = patch.visibility

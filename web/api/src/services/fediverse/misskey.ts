@@ -1,8 +1,13 @@
 import { env } from '../../config/env.js'
 import type { FediverseVisibility } from '../../schemas/post.js'
-import type { PublishPostInput, PublishPostResult, VerifiedRemoteProfile } from './types.js'
+import type {
+  OutboundMediaFile,
+  PublishPostInput,
+  PublishPostResult,
+  VerifiedRemoteProfile,
+} from './types.js'
 
-const MISSKEY_PERMISSIONS = 'read:account,write:notes'
+const MISSKEY_PERMISSIONS = 'read:account,write:notes,write:drive'
 
 export function getMisskeyCallbackUrl(): string {
   return `${env.publicApiBaseUrl}/accounts/misskey/callback`
@@ -71,15 +76,60 @@ function mapToMisskeyVisibility(
   return visibility
 }
 
+async function uploadSingleMisskeyDriveFile(
+  instanceOrigin: string,
+  accessToken: string,
+  media: OutboundMediaFile,
+): Promise<string> {
+  const form = new FormData()
+  form.append('i', accessToken)
+  form.append('name', media.filename)
+  if (media.alt) {
+    form.append('comment', media.alt)
+  }
+  const blob = new Blob([new Uint8Array(media.buffer)], { type: media.mimeType })
+  form.append('file', blob, media.filename)
+
+  const res = await fetch(`${instanceOrigin}/api/drive/files/create`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: form,
+  })
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Misskey Drive upload HTTP ${res.status}: ${errText.slice(0, 200)}`)
+  }
+
+  const payload = (await res.json()) as { id?: string }
+  if (!payload.id) {
+    throw new Error('Misskey Drive did not return file.id.')
+  }
+  return String(payload.id)
+}
+
 export async function publishToMisskey(input: PublishPostInput): Promise<PublishPostResult> {
+  const fileIds: string[] = []
+  for (const media of input.mediaFiles) {
+    const fileId = await uploadSingleMisskeyDriveFile(
+      input.instanceOrigin,
+      input.accessToken,
+      media,
+    )
+    fileIds.push(fileId)
+  }
+
+  const trimmedText = input.content.trim()
+
   const response = await fetch(`${input.instanceOrigin}/api/notes/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
       i: input.accessToken,
-      text: input.content,
+      text: trimmedText.length > 0 ? input.content : null,
       cw: input.contentWarning || null,
       visibility: mapToMisskeyVisibility(input.visibility),
+      fileIds: fileIds.length > 0 ? fileIds : undefined,
     }),
   })
 

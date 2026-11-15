@@ -1,6 +1,7 @@
 export type FediversePlatform = 'mastodon' | 'misskey'
 export type SoliloVisibility = 'public' | 'private'
 export type FediverseVisibility = 'public' | 'unlisted' | 'followers'
+export type PostMediaMimeType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
 
 export interface ConnectedAccount {
   id: string
@@ -15,6 +16,19 @@ export interface ConnectedAccount {
   profileUrl: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface PostMedia {
+  id: string
+  url: string
+  mimeType: PostMediaMimeType
+  sizeBytes: number
+  alt: string | null
+}
+
+export interface PostMediaAttachmentInput {
+  id: string
+  alt?: string | null
 }
 
 export interface DeliveryReceipt {
@@ -34,6 +48,7 @@ export interface Post {
   contentWarning: string | null
   visibility: SoliloVisibility
   fediverseVisibility: FediverseVisibility
+  media: PostMedia[]
   deliveries: DeliveryReceipt[]
   createdAt: string
   updatedAt: string
@@ -44,6 +59,7 @@ export interface CreatePostInput {
   contentWarning?: string | null
   visibility: SoliloVisibility
   fediverseVisibility: FediverseVisibility
+  media?: PostMediaAttachmentInput[]
   accountIds: string[]
 }
 
@@ -63,6 +79,7 @@ export interface PublicPost {
   id: string
   content: string
   contentWarning: string | null
+  media: PostMedia[]
   syndications: PublicSyndication[]
   createdAt: string
   updatedAt: string
