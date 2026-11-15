@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// ===============================================================
+// Solilo — Cloud Firestore Security Rules
+// ===============================================================
+//
+// Security Architecture (Backend-Mediated Access Only):
+//   - Solilo uses a self-hosted TypeScript + Hono backend (`web/api`)
+//     that connects to Cloud Firestore exclusively via the privileged
+//     `firebase-admin` SDK (Service Account credentials), which
+//     authenticates via Google Cloud IAM and bypasses Security Rules.
+//   - Web, iOS, Android clients, and external embedded websites DO NOT
+//     read from or write to Cloud Firestore directly via Firebase
+//     Client SDKs or the Firestore REST/gRPC client endpoints.
+//   - All client requests are authenticated (Firebase Auth ID Token or
+//     Solilo API Key) and validated by the `web/api` server.
+//
+// Assumed Server-Managed Data Model (Restricted from Client SDKs):
+//   - Collection: users/{uid}
+//     User profile metadata and server-managed account settings.
+//   - Subcollection: users/{uid}/posts/{postId}
+//     Microblog posts (content, visibility, createdAt, syndication metadata).
+//   - Subcollection: users/{uid}/accounts/{accountId}
+//     Linked Mastodon/Misskey accounts, including AES-256-GCM encrypted
+//     OAuth/MiAuth access tokens.
+//   - Collection: instanceApps/{domain}
+//     Registered Fediverse OAuth client credentials (clientId and
+//     encrypted clientSecret) keyed by instance domain.
+//   - Collection: oauthStates/{stateId}
+//     Ephemeral OAuth / MiAuth state nonces and session binding data.
+//   - Collection: apiKeys/{keyHash}
+//     Hashed API keys mapped to user UIDs, scopes, and revocation/metadata.
+//
+// Because these collections store sensitive server-managed secrets
+// (encrypted OAuth client secrets/tokens, OAuth state nonces, API key
+// hashes, and non-public posts), all direct client-SDK reads and writes
+// across the entire database are unconditionally denied.
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Deny all direct client-SDK and Firestore client API access globally
+    // (including all nested subcollections and collectionGroup queries).
+    // All legitimate database operations are mediated by `firebase-admin`
+    // in `web/api`.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
