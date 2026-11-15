@@ -1,0 +1,194 @@
+import { useId, useState, type FormEvent } from 'react'
+import { formatFullDateTime, formatTimeOfDay } from '../lib/time'
+import type { Post, SoliloVisibility, UpdatePostInput } from '../types/solilo'
+
+interface TimelineItemProps {
+  post: Post
+  onUpdate: (id: string, patch: UpdatePostInput) => Promise<void>
+  onRequestDelete: (post: Post) => void
+}
+
+export function TimelineItem({ post, onUpdate, onRequestDelete }: TimelineItemProps) {
+  const [editing, setEditing] = useState(false)
+  const [draftContent, setDraftContent] = useState(post.content)
+  const [draftCw, setDraftCw] = useState(post.contentWarning ?? '')
+  const [draftVisibility, setDraftVisibility] = useState<SoliloVisibility>(post.visibility)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const editContentId = useId()
+  const editCwId = useId()
+  const editVisPubId = useId()
+  const editVisPrivId = useId()
+
+  function startEditing() {
+    setDraftContent(post.content)
+    setDraftCw(post.contentWarning ?? '')
+    setDraftVisibility(post.visibility)
+    setError(null)
+    setEditing(true)
+  }
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmed = draftContent.trim()
+    if (!trimmed) return
+
+    setSaving(true)
+    setError(null)
+    try {
+      await onUpdate(post.id, {
+        content: trimmed,
+        contentWarning: draftCw.trim() ? draftCw.trim() : null,
+        visibility: draftVisibility,
+      })
+      setEditing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <article className="timeline-entry">
+      <div className="entry-rail">
+        <time
+          dateTime={post.createdAt}
+          title={formatFullDateTime(post.createdAt)}
+          className="entry-time"
+        >
+          {formatTimeOfDay(post.createdAt)}
+        </time>
+        <span
+          className={`visibility-tag ${post.visibility}`}
+          title={
+            post.visibility === 'public'
+              ? '公开：可通过 API Key 在个人网站展示'
+              : '私密：仅在你登录的客户端中可见'
+          }
+        >
+          {post.visibility === 'public' ? '公开' : '私密'}
+        </span>
+      </div>
+
+      <div className="entry-main">
+        {editing ? (
+          <form method="post" onSubmit={handleSave} className="entry-edit-form">
+            <div className="field-group compact">
+              <label htmlFor={editCwId}>折叠提示（可选）</label>
+              <input
+                id={editCwId}
+                name="contentWarning"
+                type="text"
+                maxLength={500}
+                value={draftCw}
+                onChange={(e) => setDraftCw(e.target.value)}
+                placeholder="留空则直接展示正文"
+              />
+            </div>
+
+            <div className="field-group compact">
+              <label htmlFor={editContentId}>正文</label>
+              <textarea
+                id={editContentId}
+                name="content"
+                required
+                maxLength={5000}
+                value={draftContent}
+                onChange={(e) => setDraftContent(e.target.value)}
+                className="composer-textarea edit-textarea"
+              />
+            </div>
+
+            <fieldset className="inline-fieldset">
+              <legend>可见范围</legend>
+              <div className="radio-pill-group">
+                <span className="radio-pill">
+                  <input
+                    type="radio"
+                    id={editVisPubId}
+                    name={`vis-${post.id}`}
+                    value="public"
+                    checked={draftVisibility === 'public'}
+                    onChange={() => setDraftVisibility('public')}
+                  />
+                  <label htmlFor={editVisPubId}>公开</label>
+                </span>
+                <span className="radio-pill">
+                  <input
+                    type="radio"
+                    id={editVisPrivId}
+                    name={`vis-${post.id}`}
+                    value="private"
+                    checked={draftVisibility === 'private'}
+                    onChange={() => setDraftVisibility('private')}
+                  />
+                  <label htmlFor={editVisPrivId}>私密</label>
+                </span>
+              </div>
+            </fieldset>
+
+            {error ? <p className="error-text">{error}</p> : null}
+
+            <div className="entry-edit-actions">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setEditing(false)}
+              >
+                取消
+              </button>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
+                {saving ? '保存中…' : '保存修改'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
+            {post.contentWarning ? (
+              <details className="entry-cw">
+                <summary>{post.contentWarning}</summary>
+                <p className="entry-content">{post.content}</p>
+              </details>
+            ) : (
+              <p className="entry-content">{post.content}</p>
+            )}
+
+            {post.deliveries.length > 0 ? (
+              <ul className="delivery-list" aria-label="联邦宇宙同步记录">
+                {post.deliveries.map((d) => (
+                  <li key={d.accountId} className={`delivery-badge ${d.status}`}>
+                    <span className={`platform-dot ${d.platform}`} aria-hidden="true" />
+                    {d.status === 'published' && d.remoteUrl ? (
+                      <a href={d.remoteUrl} target="_blank" rel="noopener noreferrer">
+                        {d.acct} ↗
+                      </a>
+                    ) : d.status === 'failed' ? (
+                      <span title={d.error ?? '发送失败'}>{d.acct} · 发送失败</span>
+                    ) : (
+                      <span>{d.acct} · 同步中</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <div className="entry-toolbar">
+              <button type="button" className="ghost-action-btn" onClick={startEditing}>
+                编辑
+              </button>
+              <button
+                type="button"
+                className="ghost-action-btn danger"
+                onClick={() => onRequestDelete(post)}
+              >
+                删除
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </article>
+  )
+}

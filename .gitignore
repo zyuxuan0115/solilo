@@ -1,0 +1,15 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*-firebase-adminsdk-*.json
+service-account*.json
+
+# Dependencies & Build Outputs
+node_modules/
+dist/
+*.log
+
+# Tooling & OS
+.firebase/
+.DS_Store
