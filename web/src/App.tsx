@@ -45,6 +45,8 @@ export function App() {
   const [filter, setFilter] = useState<VisibilityFilter>('all')
 
   const [accountsModalOpen, setAccountsModalOpen] = useState(false)
+  const [preferredAccountPlatform, setPreferredAccountPlatform] =
+    useState<FediversePlatform>('mastodon')
   const [embedModalOpen, setEmbedModalOpen] = useState(false)
   const [postPendingDelete, setPostPendingDelete] = useState<Post | null>(null)
   const [deletingPost, setDeletingPost] = useState(false)
@@ -153,6 +155,13 @@ export function App() {
     if (!client) return
     const updated = await client.updatePost(id, patch)
     setPosts((prev) => prev.map((item) => (item.id === id ? updated : item)))
+  }
+
+  async function handleRetryDelivery(postId: string, accountId: string): Promise<Post> {
+    if (!client) throw new Error('未登录')
+    const updated = await client.retryDelivery(postId, accountId)
+    setPosts((prev) => prev.map((item) => (item.id === postId ? updated : item)))
+    return updated
   }
 
   async function handleConfirmDeletePost() {
@@ -300,7 +309,7 @@ export function App() {
             className="nav-btn"
             onClick={() => setEmbedModalOpen(true)}
           >
-            API 与网页嵌入
+            设置
           </button>
           <button type="button" className="nav-btn subtle" onClick={() => void handleSignOut()}>
             {client.mode === 'sandbox' ? '退出预览' : '退出'}
@@ -326,7 +335,10 @@ export function App() {
           accounts={accounts}
           onUploadMedia={handleUploadMedia}
           onPublish={handlePublish}
-          onOpenAccounts={() => setAccountsModalOpen(true)}
+          onOpenAccounts={(plat) => {
+            if (plat) setPreferredAccountPlatform(plat)
+            setAccountsModalOpen(true)
+          }}
         />
 
         <section className="timeline-section" aria-label="过往时间线">
@@ -379,6 +391,7 @@ export function App() {
                         key={post.id}
                         post={post}
                         onUpdate={handleUpdatePost}
+                        onRetryDelivery={handleRetryDelivery}
                         onRequestDelete={setPostPendingDelete}
                         onOpenMedia={(mediaList, index) =>
                           setLightboxState({ mediaList, index })
@@ -410,6 +423,7 @@ export function App() {
         open={accountsModalOpen}
         isSandbox={client.mode === 'sandbox'}
         accounts={accounts}
+        initialPlatform={preferredAccountPlatform}
         onClose={() => setAccountsModalOpen(false)}
         onConnect={handleConnectAccount}
         onDisconnect={handleDisconnectAccount}

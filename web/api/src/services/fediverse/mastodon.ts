@@ -160,6 +160,7 @@ async function waitForMastodonMediaProcessing(
           Authorization: `Bearer ${accessToken}`,
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(10_000),
       },
     )
     if (poll.status === 200) return
@@ -189,6 +190,7 @@ async function uploadSingleMastodonMedia(
       Accept: 'application/json',
     },
     body: buildForm(),
+    signal: AbortSignal.timeout(25_000),
   })
 
   // Fallback for older Mastodon-compatible servers that only implement /api/v1/media
@@ -200,6 +202,7 @@ async function uploadSingleMastodonMedia(
         Accept: 'application/json',
       },
       body: buildForm(),
+      signal: AbortSignal.timeout(25_000),
     })
   }
 
@@ -241,6 +244,7 @@ export async function publishToMastodon(input: PublishPostInput): Promise<Publis
       visibility: mapToMastodonVisibility(input.visibility),
       media_ids: mediaIds.length > 0 ? mediaIds : undefined,
     }),
+    signal: AbortSignal.timeout(15_000),
   })
 
   if (!response.ok) {

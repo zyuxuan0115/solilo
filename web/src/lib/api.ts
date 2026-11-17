@@ -28,6 +28,7 @@ export interface SoliloClient {
   listPosts(params?: { limit?: number; cursor?: string }): Promise<PaginatedResponse<Post>>
   uploadMedia(file: File, alt?: string): Promise<PostMedia>
   createPost(input: CreatePostInput): Promise<Post>
+  retryDelivery(postId: string, accountId: string): Promise<Post>
   updatePost(id: string, patch: UpdatePostInput): Promise<Post>
   deletePost(id: string): Promise<void>
   listAccounts(): Promise<ConnectedAccount[]>
@@ -100,6 +101,14 @@ export function createCloudSoliloClient(): SoliloClient {
         method: 'POST',
         body: JSON.stringify(input),
       })
+    },
+    retryDelivery(postId, accountId) {
+      return apiFetch<Post>(
+        `/posts/${encodeURIComponent(postId)}/deliveries/${encodeURIComponent(accountId)}/retry`,
+        {
+          method: 'POST',
+        },
+      )
     },
     updatePost(id, patch) {
       return apiFetch<Post>(`/posts/${encodeURIComponent(id)}`, {
@@ -183,6 +192,20 @@ function defaultSandboxState(): SandboxState {
         createdAt: yesterday,
         updatedAt: yesterday,
       },
+      {
+        id: 'misskey_misskey.io_demo',
+        platform: 'misskey',
+        instanceOrigin: 'https://misskey.io',
+        instanceHost: 'misskey.io',
+        remoteAccountId: 'demo_2',
+        username: 'kate',
+        acct: '@kate@misskey.io',
+        displayName: 'Kate',
+        avatarUrl: null,
+        profileUrl: 'https://misskey.io/@kate',
+        createdAt: yesterday,
+        updatedAt: yesterday,
+      },
     ],
     posts: [
       {
@@ -202,6 +225,16 @@ function defaultSandboxState(): SandboxState {
             remoteUrl: 'https://mastodon.social/@kate',
             error: null,
             deliveredAt: earlier,
+          },
+          {
+            accountId: 'misskey_misskey.io_demo',
+            platform: 'misskey',
+            acct: '@kate@misskey.io',
+            status: 'failed',
+            remotePostId: null,
+            remoteUrl: null,
+            error: '实例响应超时，服务器可能暂时不可用',
+            deliveredAt: null,
           },
         ],
         createdAt: earlier,
@@ -381,19 +414,34 @@ export function createSandboxSoliloClient(): SoliloClient {
         visibility: input.visibility,
         fediverseVisibility: input.fediverseVisibility,
         media: resolvedMedia,
-        deliveries: selected.map((acc) => ({
-          accountId: acc.id,
-          platform: acc.platform,
-          acct: acc.acct,
-          status: 'published',
-          remotePostId: `sim_${Date.now()}`,
-          remoteUrl:
-            acc.platform === 'mastodon'
-              ? `${acc.instanceOrigin}/@${acc.username}`
-              : `${acc.instanceOrigin}/notes/demo`,
-          error: null,
-          deliveredAt: now,
-        })),
+        deliveries: selected.map((acc) => {
+          const simulateDown = /(^|[.-])(down|offline)([.-]|$)/i.test(acc.instanceHost)
+          if (simulateDown) {
+            return {
+              accountId: acc.id,
+              platform: acc.platform,
+              acct: acc.acct,
+              status: 'failed' as const,
+              remotePostId: null,
+              remoteUrl: null,
+              error: '无法连接到实例服务器',
+              deliveredAt: null,
+            }
+          }
+          return {
+            accountId: acc.id,
+            platform: acc.platform,
+            acct: acc.acct,
+            status: 'published' as const,
+            remotePostId: `sim_${Date.now()}`,
+            remoteUrl:
+              acc.platform === 'mastodon'
+                ? `${acc.instanceOrigin}/@${acc.username}`
+                : `${acc.instanceOrigin}/notes/demo`,
+            error: null,
+            deliveredAt: now,
+          }
+        }),
         createdAt: now,
         updatedAt: now,
       }
@@ -401,6 +449,54 @@ export function createSandboxSoliloClient(): SoliloClient {
       state.posts.unshift(post)
       saveSandbox(state)
       return post
+    },
+    async retryDelivery(postId, accountId) {
+      await new Promise((resolve) => setTimeout(resolve, 650))
+      const state = loadSandbox()
+      const target = state.posts.find((p) => p.id === postId)
+      if (!target) throw new Error('未找到该条记录。')
+
+      const receiptIdx = target.deliveries.findIndex((d) => d.accountId === accountId)
+      if (receiptIdx < 0) throw new Error('该动态未关联此联邦宇宙账号。')
+
+      const existing = target.deliveries[receiptIdx]!
+      const acc = state.accounts.find((a) => a.id === accountId)
+      if (!acc) {
+        target.deliveries[receiptIdx] = {
+          ...existing,
+          status: 'failed',
+          error: '该联邦宇宙账号已解除绑定，请重新绑定后再试。',
+        }
+        saveSandbox(state)
+        throw new Error(`账号 ${existing.acct} 已解除绑定，请重新绑定后再试。`)
+      }
+
+      const now = new Date().toISOString()
+      const staysDown = /^always-down\./i.test(acc.instanceHost)
+      target.deliveries[receiptIdx] = staysDown
+        ? {
+            ...existing,
+            status: 'failed',
+            remotePostId: null,
+            remoteUrl: null,
+            error: '无法连接到实例服务器',
+            deliveredAt: null,
+          }
+        : {
+            ...existing,
+            status: 'published',
+            remotePostId: `sim_retry_${Date.now()}`,
+            remoteUrl:
+              acc.platform === 'mastodon'
+                ? `${acc.instanceOrigin}/@${acc.username}`
+                : `${acc.instanceOrigin}/notes/demo`,
+            error: null,
+            deliveredAt: now,
+          }
+
+      target.updatedAt = now
+      saveSandbox(state)
+      return { ...target, deliveries: [...target.deliveries] }
     },
     async updatePost(id, patch) {
       const state = loadSandbox()

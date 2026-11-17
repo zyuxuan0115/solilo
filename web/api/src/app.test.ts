@@ -33,6 +33,7 @@ describe('Solilo API skeleton', () => {
     assert.ok('/apps/solilo/api/media' in spec.paths)
     assert.ok('/apps/solilo/api/media/{id}' in spec.paths)
     assert.ok('/apps/solilo/api/posts' in spec.paths)
+    assert.ok('/apps/solilo/api/posts/{id}/deliveries/{accountId}/retry' in spec.paths)
     assert.ok('/apps/solilo/api/accounts/mastodon/connect' in spec.paths)
     assert.ok('/apps/solilo/api/accounts/misskey/connect' in spec.paths)
     assert.ok('/apps/solilo/api/api-keys' in spec.paths)
@@ -51,6 +52,11 @@ describe('Solilo API skeleton', () => {
     assert.equal(resPosts.status, 401)
     const resMedia = await app.request('/apps/solilo/api/media', { method: 'POST' })
     assert.equal(resMedia.status, 401)
+    const resRetry = await app.request(
+      '/apps/solilo/api/posts/pst_1/deliveries/acc_1/retry',
+      { method: 'POST' },
+    )
+    assert.equal(resRetry.status, 401)
   })
 
   it('rejects tampered media signatures with 403', async () => {

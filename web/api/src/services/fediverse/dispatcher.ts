@@ -4,6 +4,19 @@ import { publishToMastodon } from './mastodon.js'
 import { publishToMisskey } from './misskey.js'
 import type { OutboundMediaFile } from './types.js'
 
+function formatDeliveryError(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      return '实例响应超时，服务器可能暂时不可用'
+    }
+    if (/fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ECONNRESET/i.test(err.message)) {
+      return '无法连接到实例服务器'
+    }
+    return err.message
+  }
+  return 'Unknown delivery error'
+}
+
 export async function dispatchPostToAccounts(params: {
   postId: string
   content: string
@@ -48,7 +61,7 @@ export async function dispatchPostToAccounts(params: {
           status: 'failed',
           remotePostId: null,
           remoteUrl: null,
-          error: err instanceof Error ? err.message : 'Unknown delivery error',
+          error: formatDeliveryError(err),
           deliveredAt: null,
         }
       }

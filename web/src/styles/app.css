@@ -14,12 +14,24 @@
   --border-dark: #34332e;
   --input-border-light: #757067;
   --input-border-dark: #8c877d;
-  --accent-light: #3f5e46;
+  --accent-light: #9e4760;
   --accent-dark: #8fb496;
   --accent-contrast-light: #ffffff;
   --accent-contrast-dark: #131c15;
+  --btn-primary-bg-light: #f7d6e0;
+  --btn-primary-bg-dark: #8fb496;
+  --btn-primary-hover-light: #efc3d1;
+  --btn-primary-hover-dark: #a1c3a8;
+  --btn-primary-fg-light: #4a1f2c;
+  --btn-primary-fg-dark: #131c15;
+  --btn-primary-border-light: #b5657a;
+  --btn-primary-border-dark: transparent;
   --danger-light: #a6362b;
   --danger-dark: #ee867c;
+
+  /* Reusable SVG masks for checked & indeterminate custom checkboxes */
+  --icon-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'></polyline></svg>");
+  --icon-dash: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'><line x1='5' y1='12' x2='19' y2='12'></line></svg>");
 
   /* Baseline fallback before light-dark() */
   --bg: var(--bg-light);
@@ -31,6 +43,10 @@
   --input-border: var(--input-border-light);
   --accent: var(--accent-light);
   --accent-contrast: var(--accent-contrast-light);
+  --btn-primary-bg: var(--btn-primary-bg-light);
+  --btn-primary-hover: var(--btn-primary-hover-light);
+  --btn-primary-fg: var(--btn-primary-fg-light);
+  --btn-primary-border: var(--btn-primary-border-light);
   --danger: var(--danger-light);
 
   @media (prefers-color-scheme: dark) {
@@ -43,6 +59,10 @@
     --input-border: var(--input-border-dark);
     --accent: var(--accent-dark);
     --accent-contrast: var(--accent-contrast-dark);
+    --btn-primary-bg: var(--btn-primary-bg-dark);
+    --btn-primary-hover: var(--btn-primary-hover-dark);
+    --btn-primary-fg: var(--btn-primary-fg-dark);
+    --btn-primary-border: var(--btn-primary-border-dark);
     --danger: var(--danger-dark);
   }
 
@@ -60,6 +80,10 @@
     --input-border: var(--input-border-dark);
     --accent: var(--accent-dark);
     --accent-contrast: var(--accent-contrast-dark);
+    --btn-primary-bg: var(--btn-primary-bg-dark);
+    --btn-primary-hover: var(--btn-primary-hover-dark);
+    --btn-primary-fg: var(--btn-primary-fg-dark);
+    --btn-primary-border: var(--btn-primary-border-dark);
     --danger: var(--danger-dark);
   }
 
@@ -74,6 +98,10 @@
     --input-border: var(--input-border-light);
     --accent: var(--accent-light);
     --accent-contrast: var(--accent-contrast-light);
+    --btn-primary-bg: var(--btn-primary-bg-light);
+    --btn-primary-hover: var(--btn-primary-hover-light);
+    --btn-primary-fg: var(--btn-primary-fg-light);
+    --btn-primary-border: var(--btn-primary-border-light);
     --danger: var(--danger-light);
   }
 
@@ -87,6 +115,10 @@
     --input-border: light-dark(var(--input-border-light), var(--input-border-dark));
     --accent: light-dark(var(--accent-light), var(--accent-dark));
     --accent-contrast: light-dark(var(--accent-contrast-light), var(--accent-contrast-dark));
+    --btn-primary-bg: light-dark(var(--btn-primary-bg-light), var(--btn-primary-bg-dark));
+    --btn-primary-hover: light-dark(var(--btn-primary-hover-light), var(--btn-primary-hover-dark));
+    --btn-primary-fg: light-dark(var(--btn-primary-fg-light), var(--btn-primary-fg-dark));
+    --btn-primary-border: light-dark(var(--btn-primary-border-light), var(--btn-primary-border-dark));
     --danger: light-dark(var(--danger-light), var(--danger-dark));
   }
 
@@ -310,8 +342,14 @@ textarea:user-invalid {
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border-color: var(--btn-primary-border);
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
 }
 
 .btn-secondary {
@@ -708,6 +746,297 @@ textarea:user-invalid {
   background-color: #86b300;
 }
 
+/* Accessible custom checkbox supporting :checked and :indeterminate */
+.solilo-checkbox {
+  --checkbox-size: 1.15em;
+  --checkbox-icon-size: 0.7em;
+
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  inline-size: var(--checkbox-size);
+  aspect-ratio: 1;
+  margin: 0;
+  border: 2px solid var(--input-border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &::before {
+    content: '';
+    inline-size: var(--checkbox-icon-size);
+    aspect-ratio: 1;
+    background-color: currentColor;
+    mask: var(--checkbox-icon) no-repeat center / contain;
+    scale: 0;
+
+    @media (prefers-reduced-motion: no-preference) {
+      transition: scale 140ms ease;
+    }
+
+    @media (forced-colors: active) {
+      background-color: CanvasText;
+    }
+  }
+
+  &:checked {
+    --checkbox-icon: var(--icon-check);
+  }
+
+  &:indeterminate {
+    --checkbox-icon: var(--icon-dash);
+  }
+
+  &:is(:checked, :indeterminate) {
+    background-color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  &:is(:checked, :indeterminate)::before {
+    scale: 1;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+/* Platform Multi-Select Split Dropdowns (Mastodon & Misskey) */
+.fediverse-dropdown-row {
+  display: grid;
+  gap: 0.6rem;
+}
+
+@media (min-width: 34rem) {
+  .fediverse-dropdown-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.platform-dropdown-wrap {
+  position: relative;
+  min-inline-size: 0;
+}
+
+.platform-combo {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.platform-combo.has-selection {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.platform-combo-main {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 44px;
+  padding: 0.45rem 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.platform-combo-main.is-disabled {
+  cursor: not-allowed;
+}
+
+.platform-combo-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.platform-combo-badge {
+  margin-inline-start: auto;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.platform-combo.has-selection .platform-combo-badge {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.platform-combo-trigger {
+  font: inherit;
+  min-inline-size: 44px;
+  min-block-size: 44px;
+  padding: 0;
+  border: none;
+  border-inline-start: 1px solid var(--border);
+  border-start-end-radius: 11px;
+  border-end-end-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.platform-combo-trigger:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--surface-subtle);
+}
+
+.platform-combo-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.combo-chevron {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.platform-dropdown-popover {
+  width: min(92vw, 20rem);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
+}
+
+[popover].platform-dropdown-popover:is(:popover-open, .\:popover-open),
+.platform-dropdown-popover.fallback-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
+@supports (position-area: block-end) {
+  [popover].platform-dropdown-popover {
+    inset: auto;
+    margin: 0;
+    margin-block: 0.35rem;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+}
+
+@supports not (position-area: block-end) {
+  [popover].platform-dropdown-popover::backdrop {
+    background: rgba(12, 12, 10, 0.26);
+  }
+}
+
+.platform-dropdown-popover.fallback-panel {
+  position: absolute;
+  inset-block-start: calc(100% + 0.35rem);
+  inset-inline-start: 0;
+  z-index: 25;
+}
+
+.dropdown-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem 0.5rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.dropdown-panel-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.dropdown-select-all-btn {
+  padding: 0.1rem 0.25rem;
+  font-size: 0.8rem;
+}
+
+.dropdown-empty-msg {
+  margin: 0;
+  padding: 0.95rem 0.85rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.dropdown-account-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem;
+  max-block-size: 14rem;
+  overflow-y: auto;
+}
+
+.platform-account-option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-block-size: 44px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.platform-account-option:hover {
+  background: var(--surface-subtle);
+}
+
+.platform-account-meta {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.platform-account-acct {
+  font-size: 0.875rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-account-display {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.dropdown-panel-footer {
+  padding: 0.35rem;
+  border-block-start: 1px solid var(--border);
+}
+
+.dropdown-bind-btn {
+  font: inherit;
+  font-size: 0.825rem;
+  width: 100%;
+  min-block-size: 40px;
+  padding: 0.45rem 0.65rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.dropdown-bind-btn:hover {
+  background: var(--surface-subtle);
+}
+
 .chip-toggle-btn,
 .chip-action-btn {
   font: inherit;
@@ -1030,37 +1359,193 @@ textarea:user-invalid {
   gap: 0.5rem;
 }
 
-.delivery-list {
-  list-style: none;
-  margin: 0.65rem 0 0;
-  padding: 0;
+/* Timeline Post SNS Platform Dropdowns (Mastodon & Misskey) */
+.delivery-dropdown-group {
+  margin-block-start: 0.65rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
 }
 
-.delivery-badge {
+.delivery-dropdown-wrap {
+  position: relative;
+}
+
+.delivery-dropdown-trigger {
+  font: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  padding: 0.2rem 0.55rem;
+  gap: 0.38rem;
+  min-block-size: 36px;
+  padding: 0.25rem 0.7rem;
   border-radius: 999px;
+  border: 1px solid var(--border);
   background: var(--surface-subtle);
+  color: var(--fg);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.delivery-dropdown-trigger:hover {
+  border-color: var(--accent);
+}
+
+.delivery-dropdown-trigger.has-failed {
+  border-color: var(--danger);
+}
+
+.delivery-trigger-label {
+  font-weight: 600;
+}
+
+.delivery-trigger-count {
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
-.delivery-badge a {
-  color: inherit;
+.delivery-trigger-flag {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.delivery-trigger-flag.failed {
+  color: var(--danger);
+}
+
+.delivery-dropdown-popover {
+  width: min(92vw, 20.5rem);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
+}
+
+[popover].delivery-dropdown-popover:is(:popover-open, .\:popover-open),
+.delivery-dropdown-popover.fallback-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
+@supports (position-area: block-end) {
+  [popover].delivery-dropdown-popover {
+    inset: auto;
+    margin: 0;
+    margin-block: 0.35rem;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+}
+
+@supports not (position-area: block-end) {
+  [popover].delivery-dropdown-popover::backdrop {
+    background: rgba(12, 12, 10, 0.26);
+  }
+}
+
+.delivery-dropdown-popover.fallback-panel {
+  position: absolute;
+  inset-block-start: calc(100% + 0.35rem);
+  inset-inline-start: 0;
+  z-index: 25;
+}
+
+.delivery-popover-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem;
+  gap: 0.2rem;
+  max-block-size: 14rem;
+  overflow-y: auto;
+}
+
+.delivery-popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  min-block-size: 44px;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  font-size: 0.825rem;
+  color: var(--fg);
+}
+
+.delivery-popover-info {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.delivery-popover-acct {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.delivery-popover-sub {
+  font-size: 0.74rem;
+  color: var(--danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-action-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 34px;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 600;
   text-decoration: none;
 }
 
-.delivery-badge a:hover {
-  color: var(--accent);
+.delivery-action-link:hover {
+  background: var(--surface-subtle);
   text-decoration: underline;
 }
 
-.delivery-badge.failed {
+.delivery-retry-btn {
+  font: inherit;
+  flex-shrink: 0;
+  min-block-size: 34px;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--btn-primary-border);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.delivery-retry-btn:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
+}
+
+.delivery-retry-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.delivery-retry-feedback {
+  padding: 0.5rem 0.75rem;
+  border-block-start: 1px solid var(--border);
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.delivery-retry-feedback.error {
   color: var(--danger);
 }
 

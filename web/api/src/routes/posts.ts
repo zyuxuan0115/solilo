@@ -12,12 +12,15 @@ import { dispatchPostToAccounts } from '../services/fediverse/dispatcher.js'
 import {
   createPostRecord,
   deletePostRecord,
+  downloadPostMediaPayloads,
   downloadStoredMediaPayloads,
   getConnectedAccountsForDispatch,
+  getPost,
   listPosts,
   resolveUserMediaForPost,
   updatePostDeliveries,
   updatePostRecord,
+  updateSinglePostDelivery,
 } from '../services/firestore.js'
 import type { AppEnv } from '../types.js'
 import { publicTimelineCache } from '../utils/cache.js'
@@ -26,6 +29,17 @@ const PostIdParamSchema = z.object({
   id: z.string().min(1).openapi({
     param: { name: 'id', in: 'path' },
     example: 'pst_01JCP4X9Z7G6K8M2N4Q6R8S0T2',
+  }),
+})
+
+const RetryDeliveryParamSchema = z.object({
+  id: z.string().min(1).openapi({
+    param: { name: 'id', in: 'path' },
+    example: 'pst_01JCP4X9Z7G6K8M2N4Q6R8S0T2',
+  }),
+  accountId: z.string().min(1).openapi({
+    param: { name: 'accountId', in: 'path' },
+    example: 'mastodon_mastodon.social_109382',
   }),
 })
 
@@ -147,6 +161,36 @@ const deletePostRoute = createRoute({
     },
     404: {
       description: 'Post not found',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+  },
+})
+
+const retryPostDeliveryRoute = createRoute({
+  method: 'post',
+  path: '/{id}/deliveries/{accountId}/retry',
+  tags: ['Posts'],
+  summary: 'Retry cross-posting a failed or pending delivery to a specific Mastodon / Misskey instance',
+  security: [{ FirebaseBearer: [] }],
+  middleware: [requireFirebaseAuth] as const,
+  request: {
+    params: RetryDeliveryParamSchema,
+  },
+  responses: {
+    200: {
+      description: 'Post with updated per-account delivery receipt',
+      content: { 'application/json': { schema: PostSchema } },
+    },
+    400: {
+      description: 'Connected account no longer exists or media could not be loaded',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: 'Unauthorized',
+      content: { 'application/json': { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: 'Post or delivery receipt not found',
       content: { 'application/json': { schema: ErrorResponseSchema } },
     },
   },
@@ -286,4 +330,92 @@ export const postsRouter = new OpenAPIHono<AppEnv>()
 
     publicTimelineCache.invalidateUser(uid)
     return c.json({ deleted: true as const }, 200)
+  })
+  .openapi(retryPostDeliveryRoute, async (c) => {
+    const { uid } = c.get('authUser')
+    const { id, accountId } = c.req.valid('param')
+
+    const post = await getPost(uid, id)
+    if (!post) {
+      return c.json(
+        {
+          error: {
+            code: 'NOT_FOUND',
+            message: `未找到该条记录 (${id})。`,
+          },
+        },
+        404,
+      )
+    }
+
+    const existingReceipt = post.deliveries.find((d) => d.accountId === accountId)
+    if (!existingReceipt) {
+      return c.json(
+        {
+          error: {
+            code: 'DELIVERY_NOT_FOUND',
+            message: '该动态未关联此联邦宇宙账号。',
+          },
+        },
+        404,
+      )
+    }
+
+    if (existingReceipt.status === 'published' && existingReceipt.remoteUrl) {
+      return c.json(post, 200)
+    }
+
+    const [account] = await getConnectedAccountsForDispatch(uid, [accountId])
+    if (!account) {
+      const disconnectedReceipt: DeliveryReceipt = {
+        ...existingReceipt,
+        status: 'failed',
+        error: '该联邦宇宙账号已解除绑定，请重新绑定后再试。',
+      }
+      await updateSinglePostDelivery(uid, id, disconnectedReceipt)
+      return c.json(
+        {
+          error: {
+            code: 'ACCOUNT_DISCONNECTED',
+            message: `账号 ${existingReceipt.acct} 已解除绑定，请重新绑定后再试。`,
+          },
+        },
+        400,
+      )
+    }
+
+    let mediaFiles
+    try {
+      mediaFiles = await downloadPostMediaPayloads(uid, post.media)
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: 'MEDIA_LOAD_FAILED',
+            message: '读取动态配图失败，请稍后重试。',
+          },
+        },
+        400,
+      )
+    }
+
+    const [freshReceipt] = await dispatchPostToAccounts({
+      postId: post.id,
+      content: post.content,
+      contentWarning: post.contentWarning,
+      fediverseVisibility: post.fediverseVisibility,
+      mediaFiles,
+      accounts: [account],
+    })
+
+    const updated =
+      (await updateSinglePostDelivery(uid, post.id, freshReceipt!)) ?? {
+        ...post,
+        deliveries: post.deliveries.map((d) =>
+          d.accountId === accountId ? freshReceipt! : d,
+        ),
+      }
+
+    publicTimelineCache.invalidateUser(uid)
+    return c.json(updated, 200)
   })

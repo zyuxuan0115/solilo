@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useEffect, useId, useState, type FormEvent } from 'react'
 import type { ConnectedAccount, FediversePlatform } from '../types/solilo'
 import { ModalDialog } from './ModalDialog'
 
@@ -6,6 +6,7 @@ interface AccountsDialogProps {
   open: boolean
   isSandbox: boolean
   accounts: ConnectedAccount[]
+  initialPlatform?: FediversePlatform
   onClose: () => void
   onConnect: (platform: FediversePlatform, instance: string) => Promise<void>
   onDisconnect: (accountId: string) => Promise<void>
@@ -15,11 +16,18 @@ export function AccountsDialog({
   open,
   isSandbox,
   accounts,
+  initialPlatform,
   onClose,
   onConnect,
   onDisconnect,
 }: AccountsDialogProps) {
-  const [platform, setPlatform] = useState<FediversePlatform>('mastodon')
+  const [platform, setPlatform] = useState<FediversePlatform>(initialPlatform ?? 'mastodon')
+
+  useEffect(() => {
+    if (open && initialPlatform) {
+      setPlatform(initialPlatform)
+    }
+  }, [open, initialPlatform])
   const [instance, setInstance] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)

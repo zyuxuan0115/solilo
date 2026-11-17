@@ -81,7 +81,7 @@ export const CreatePostRequestSchema = z
     content: z
       .string()
       .trim()
-      .max(5000)
+      .max(500)
       .default('')
       .openapi({ example: '深夜独自写点东西，留在自己的时间线上。' }),
     contentWarning: z
@@ -119,7 +119,7 @@ export const CreatePostRequestSchema = z
 
 export const UpdatePostRequestSchema = z
   .object({
-    content: z.string().trim().max(5000).optional(),
+    content: z.string().trim().max(500).optional(),
     contentWarning: z.string().trim().max(500).nullable().optional(),
     visibility: SoliloVisibilitySchema.optional(),
   })

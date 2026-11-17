@@ -94,6 +94,7 @@ async function uploadSingleMisskeyDriveFile(
     method: 'POST',
     headers: { Accept: 'application/json' },
     body: form,
+    signal: AbortSignal.timeout(25_000),
   })
 
   if (!res.ok) {
@@ -131,6 +132,7 @@ export async function publishToMisskey(input: PublishPostInput): Promise<Publish
       visibility: mapToMisskeyVisibility(input.visibility),
       fileIds: fileIds.length > 0 ? fileIds : undefined,
     }),
+    signal: AbortSignal.timeout(15_000),
   })
 
   if (!response.ok) {

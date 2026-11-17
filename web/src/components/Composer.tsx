@@ -18,10 +18,12 @@ import {
 import type {
   ConnectedAccount,
   CreatePostInput,
+  FediversePlatform,
   FediverseVisibility,
   PostMedia,
   SoliloVisibility,
 } from '../types/solilo'
+import { PlatformAccountDropdown } from './PlatformAccountDropdown'
 
 interface PendingPhoto {
   localId: string
@@ -35,7 +37,7 @@ interface ComposerProps {
   accounts: ConnectedAccount[]
   onUploadMedia: (file: File, alt?: string) => Promise<PostMedia>
   onPublish: (input: CreatePostInput) => Promise<void>
-  onOpenAccounts: () => void
+  onOpenAccounts: (preferredPlatform?: FediversePlatform) => void
 }
 
 function formatFileSize(bytes: number): string {
@@ -88,6 +90,18 @@ export function Composer({
     setSelectedAccountIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
     )
+  }
+
+  function togglePlatformAll(platform: FediversePlatform, selectAll: boolean) {
+    const platformIds = accounts
+      .filter((acc) => acc.platform === platform)
+      .map((acc) => acc.id)
+    if (platformIds.length === 0) return
+
+    setSelectedAccountIds((prev) => {
+      const withoutPlatform = prev.filter((id) => !platformIds.includes(id))
+      return selectAll ? [...withoutPlatform, ...platformIds] : withoutPlatform
+    })
   }
 
   function addPhotoFiles(incomingFiles: File[]) {
@@ -344,7 +358,7 @@ export function Composer({
           id={contentId}
           name="content"
           required={pendingPhotos.length === 0}
-          maxLength={5000}
+          maxLength={500}
           value={content}
           onPaste={handlePaste}
           onCompositionEnd={handleCompositionEnd}
@@ -431,31 +445,26 @@ export function Composer({
           </fieldset>
 
           <fieldset className="inline-fieldset">
-            <legend>同步发往联邦宇宙（可多选）</legend>
-            <div className="account-pills">
-              {accounts.map((acc) => {
-                const checkId = `sync-acc-${acc.id}`
-                const checked = selectedAccountIds.includes(acc.id)
-                return (
-                  <span key={acc.id} className="account-check-pill">
-                    <input
-                      type="checkbox"
-                      id={checkId}
-                      name="accountIds"
-                      value={acc.id}
-                      checked={checked}
-                      onChange={() => toggleAccount(acc.id)}
-                    />
-                    <label htmlFor={checkId}>
-                      <span className={`platform-dot ${acc.platform}`} aria-hidden="true" />
-                      {acc.acct}
-                    </label>
-                  </span>
-                )
-              })}
-              <button type="button" className="chip-action-btn" onClick={onOpenAccounts}>
-                ＋ 绑定 Mastodon / Misskey
-              </button>
+            <legend>同步发往联邦宇宙（直接勾选全选平台，展开可单选账号）</legend>
+            <div className="fediverse-dropdown-row">
+              <PlatformAccountDropdown
+                platform="mastodon"
+                accounts={accounts.filter((acc) => acc.platform === 'mastodon')}
+                selectedAccountIds={selectedAccountIds}
+                disabled={publishing}
+                onTogglePlatformAll={togglePlatformAll}
+                onToggleSingleAccount={toggleAccount}
+                onRequestConnect={(plat) => onOpenAccounts(plat)}
+              />
+              <PlatformAccountDropdown
+                platform="misskey"
+                accounts={accounts.filter((acc) => acc.platform === 'misskey')}
+                selectedAccountIds={selectedAccountIds}
+                disabled={publishing}
+                onTogglePlatformAll={togglePlatformAll}
+                onToggleSingleAccount={toggleAccount}
+                onRequestConnect={(plat) => onOpenAccounts(plat)}
+              />
             </div>
           </fieldset>
 
@@ -507,7 +516,7 @@ export function Composer({
 
         <div className="composer-footer">
           <div className="composer-meta-left">
-            <span className="char-counter">{content.length} / 5000</span>
+            <span className="char-counter">{content.length} / 500</span>
             <span className="enter-check-wrap">
               <input
                 type="checkbox"

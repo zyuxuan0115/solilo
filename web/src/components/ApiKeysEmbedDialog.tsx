@@ -130,8 +130,8 @@ export function ApiKeysEmbedDialog({
     <ModalDialog
       open={open}
       onClose={onClose}
-      title="API Key、网站嵌入与外观设置"
-      subtitle="管理只读 API Key，将公开的过往记录嵌入个人博客，或调整当前设备界面主题。"
+      title="设置"
+      subtitle="管理只读 API Key、个人网站嵌入代码与界面外观主题。"
       maxWidth="44rem"
     >
       <section className="dialog-section">

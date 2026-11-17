@@ -213,6 +213,27 @@ export async function downloadStoredMediaPayloads(
   )
 }
 
+export async function downloadPostMediaPayloads(
+  uid: string,
+  media: PostMedia[],
+): Promise<Array<{ buffer: Buffer; mimeType: SupportedImageMime; filename: string; alt: string | null }>> {
+  if (media.length === 0) return []
+  const bucket = getStorageBucket()
+
+  return Promise.all(
+    media.map(async (item) => {
+      const storagePath = getMediaStoragePath(uid, item.id)
+      const [buffer] = await bucket.file(storagePath).download()
+      return {
+        buffer,
+        mimeType: item.mimeType,
+        filename: item.id,
+        alt: item.alt,
+      }
+    }),
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Posts (Timeline Updates)
 // ---------------------------------------------------------------------------
@@ -328,6 +349,33 @@ export async function updatePostDeliveries(
   await ref.update({ deliveries, updatedAt })
   const snap = await ref.get()
   return snap.exists ? normalizeStoredPost(snap.data() as Post) : null
+}
+
+export async function updateSinglePostDelivery(
+  uid: string,
+  postId: string,
+  receipt: DeliveryReceipt,
+): Promise<Post | null> {
+  const ref = userDoc(uid).collection('posts').doc(postId)
+
+  return getDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists) return null
+
+    const current = normalizeStoredPost(snap.data() as Post)
+    const updatedAt = new Date().toISOString()
+    const hasExisting = current.deliveries.some((d) => d.accountId === receipt.accountId)
+    const nextDeliveries = hasExisting
+      ? current.deliveries.map((d) => (d.accountId === receipt.accountId ? receipt : d))
+      : [...current.deliveries, receipt]
+
+    tx.update(ref, { deliveries: nextDeliveries, updatedAt })
+    return {
+      ...current,
+      deliveries: nextDeliveries,
+      updatedAt,
+    }
+  })
 }
 
 export async function updatePostRecord(

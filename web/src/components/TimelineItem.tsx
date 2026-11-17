@@ -1,10 +1,12 @@
 import { useId, useState, type FormEvent } from 'react'
 import { formatFullDateTime, formatTimeOfDay } from '../lib/time'
 import type { Post, PostMedia, SoliloVisibility, UpdatePostInput } from '../types/solilo'
+import { DeliveryPlatformDropdown } from './DeliveryPlatformDropdown'
 
 interface TimelineItemProps {
   post: Post
   onUpdate: (id: string, patch: UpdatePostInput) => Promise<void>
+  onRetryDelivery: (postId: string, accountId: string) => Promise<Post>
   onRequestDelete: (post: Post) => void
   onOpenMedia: (mediaList: PostMedia[], index: number) => void
 }
@@ -12,6 +14,7 @@ interface TimelineItemProps {
 export function TimelineItem({
   post,
   onUpdate,
+  onRetryDelivery,
   onRequestDelete,
   onOpenMedia,
 }: TimelineItemProps) {
@@ -28,6 +31,8 @@ export function TimelineItem({
   const editVisPrivId = useId()
 
   const mediaList = post.media ?? []
+  const mastodonDeliveries = post.deliveries.filter((d) => d.platform === 'mastodon')
+  const misskeyDeliveries = post.deliveries.filter((d) => d.platform === 'misskey')
 
   function startEditing() {
     setDraftContent(post.content)
@@ -134,7 +139,7 @@ export function TimelineItem({
                 id={editContentId}
                 name="content"
                 required={mediaList.length === 0}
-                maxLength={5000}
+                maxLength={500}
                 value={draftContent}
                 onChange={(e) => setDraftContent(e.target.value)}
                 className="composer-textarea edit-textarea"
@@ -200,22 +205,20 @@ export function TimelineItem({
             )}
 
             {post.deliveries.length > 0 ? (
-              <ul className="delivery-list" aria-label="联邦宇宙同步记录">
-                {post.deliveries.map((d) => (
-                  <li key={d.accountId} className={`delivery-badge ${d.status}`}>
-                    <span className={`platform-dot ${d.platform}`} aria-hidden="true" />
-                    {d.status === 'published' && d.remoteUrl ? (
-                      <a href={d.remoteUrl} target="_blank" rel="noopener noreferrer">
-                        {d.acct} ↗
-                      </a>
-                    ) : d.status === 'failed' ? (
-                      <span title={d.error ?? '发送失败'}>{d.acct} · 发送失败</span>
-                    ) : (
-                      <span>{d.acct} · 同步中</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <div className="delivery-dropdown-group" role="group" aria-label="联邦宇宙同步记录">
+                <DeliveryPlatformDropdown
+                  postId={post.id}
+                  platform="mastodon"
+                  deliveries={mastodonDeliveries}
+                  onRetryDelivery={onRetryDelivery}
+                />
+                <DeliveryPlatformDropdown
+                  postId={post.id}
+                  platform="misskey"
+                  deliveries={misskeyDeliveries}
+                  onRetryDelivery={onRetryDelivery}
+                />
+              </div>
             ) : null}
 
             <div className="entry-toolbar">

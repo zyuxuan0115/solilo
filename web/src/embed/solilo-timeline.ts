@@ -11,6 +11,7 @@ const WIDGET_CSS = `
       --_fg: var(--solilo-fg, #22211e);
       --_muted: var(--solilo-muted, #6f6c65);
       --_surface: var(--solilo-surface, transparent);
+      --_menu-bg: var(--solilo-menu-bg, #ffffff);
       --_border: var(--solilo-border, rgba(125, 120, 110, 0.22));
       --_accent: var(--solilo-accent, #5b6f5c);
       --_radius: var(--solilo-radius, 12px);
@@ -24,6 +25,7 @@ const WIDGET_CSS = `
       :host {
         --_fg: var(--solilo-fg, #ebe8e1);
         --_muted: var(--solilo-muted, #9b978e);
+        --_menu-bg: var(--solilo-menu-bg, #1e1e1b);
         --_border: var(--solilo-border, rgba(210, 205, 195, 0.16));
         --_accent: var(--solilo-accent, #93b094);
       }
@@ -33,6 +35,7 @@ const WIDGET_CSS = `
       :host {
         --_fg: var(--solilo-fg, light-dark(#22211e, #ebe8e1));
         --_muted: var(--solilo-muted, light-dark(#6f6c65, #9b978e));
+        --_menu-bg: var(--solilo-menu-bg, light-dark(#ffffff, #1e1e1b));
         --_border: var(--solilo-border, light-dark(rgba(125, 120, 110, 0.22), rgba(210, 205, 195, 0.16)));
         --_accent: var(--solilo-accent, light-dark(#5b6f5c, #93b094));
       }
@@ -164,22 +167,88 @@ const WIDGET_CSS = `
     }
 
     .syndications {
-      margin-block-start: 0.45rem;
+      margin-block-start: 0.55rem;
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.45rem;
       font-size: 0.78rem;
     }
 
-    .syndications a {
-      color: var(--_accent);
-      text-decoration: none;
-      border-block-end: 1px solid transparent;
+    details.syn-dropdown {
+      position: relative;
     }
 
-    .syndications a:hover,
-    .syndications a:focus-visible {
-      border-block-end-color: currentColor;
+    details.syn-dropdown > summary {
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.65rem;
+      min-block-size: 32px;
+      border-radius: 999px;
+      border: 1px solid var(--_border);
+      color: var(--_muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    details.syn-dropdown > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details.syn-dropdown > summary:hover,
+    details.syn-dropdown[open] > summary {
+      border-color: var(--_accent);
+      color: var(--_fg);
+    }
+
+    .syn-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .syn-dot.mastodon {
+      background-color: #6364ff;
+    }
+
+    .syn-dot.misskey {
+      background-color: #86b300;
+    }
+
+    .syn-menu {
+      position: absolute;
+      inset-block-start: calc(100% + 0.3rem);
+      inset-inline-start: 0;
+      z-index: 15;
+      min-inline-size: 14rem;
+      max-inline-size: min(85vw, 18rem);
+      padding: 0.3rem;
+      border-radius: calc(var(--_radius) * 0.8);
+      border: 1px solid var(--_border);
+      background: var(--_menu-bg);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .syn-menu a {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.38rem 0.55rem;
+      border-radius: 6px;
+      color: var(--_fg);
+      text-decoration: none;
+    }
+
+    .syn-menu a:hover,
+    .syn-menu a:focus-visible {
+      color: var(--_accent);
+      background: rgba(125, 120, 110, 0.1);
     }
 
     .footer {
@@ -530,19 +599,51 @@ export class SoliloTimelineElement extends HTMLElement {
       }
 
       if (post.syndications.length > 0) {
-        const synWrap = document.createElement('div')
-        synWrap.className = 'syndications'
-        for (const syn of post.syndications) {
-          if (!isSafeHttpUrl(syn.url)) continue
-          const link = document.createElement('a')
-          link.href = syn.url
-          link.target = '_blank'
-          link.rel = 'noopener noreferrer'
-          link.textContent = `${syn.platform === 'mastodon' ? 'Mastodon' : 'Misskey'} · ${syn.acct}`
-          synWrap.append(link)
-        }
-        if (synWrap.childElementCount > 0) {
-          body.append(synWrap)
+        const validSyns = post.syndications.filter((syn) => isSafeHttpUrl(syn.url))
+        if (validSyns.length > 0) {
+          const synWrap = document.createElement('div')
+          synWrap.className = 'syndications'
+
+          for (const platform of ['mastodon', 'misskey'] as const) {
+            const group = validSyns.filter((syn) => syn.platform === platform)
+            if (group.length === 0) continue
+
+            const dropdown = document.createElement('details')
+            dropdown.className = 'syn-dropdown'
+
+            const summary = document.createElement('summary')
+            const dot = document.createElement('span')
+            dot.className = `syn-dot ${platform}`
+            dot.setAttribute('aria-hidden', 'true')
+            const text = document.createElement('span')
+            text.textContent = `${platform === 'mastodon' ? 'Mastodon' : 'Misskey'} (${group.length}) ▾`
+            summary.append(dot, text)
+
+            const menu = document.createElement('div')
+            menu.className = 'syn-menu'
+            for (const syn of group) {
+              const link = document.createElement('a')
+              link.href = syn.url
+              link.target = '_blank'
+              link.rel = 'noopener noreferrer'
+              const acctSpan = document.createElement('span')
+              acctSpan.textContent = syn.acct
+              const arrowSpan = document.createElement('span')
+              arrowSpan.textContent = '↗'
+              link.append(acctSpan, arrowSpan)
+              link.addEventListener('click', () => {
+                dropdown.open = false
+              })
+              menu.append(link)
+            }
+
+            dropdown.append(summary, menu)
+            synWrap.append(dropdown)
+          }
+
+          if (synWrap.childElementCount > 0) {
+            body.append(synWrap)
+          }
         }
       }
 
